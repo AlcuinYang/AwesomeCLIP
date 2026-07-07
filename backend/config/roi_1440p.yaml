@@ -3,21 +3,15 @@
 # 首次使用请用 `vmontage calibrate <样例帧>` 核对并截取模板。
 resolution: [2560, 1440]
 
+# HUD 随分辨率等比缩放,相对坐标沿用 1080p 标定(真机验证前视为待核对)
 rois:
-  # 击杀横幅:屏幕下方中央(准星下方)
-  kill_banner: [0.360, 0.780, 0.280, 0.095]
-  # 顶部记分区(含双方头像格),split 成左右两半判存活
-  scoreboard_ally: [0.290, 0.020, 0.155, 0.075]
-  scoreboard_enemy: [0.555, 0.020, 0.155, 0.075]
-  # 回合结束胜利/失败横幅(屏幕中央偏上)
+  kill_feed: [0.700, 0.050, 0.300, 0.110]
+  scoreboard_ally: [0.215, 0.016, 0.190, 0.058]
+  scoreboard_enemy: [0.585, 0.016, 0.190, 0.058]
   round_end_banner: [0.330, 0.170, 0.340, 0.130]
-  # 光流估计视角角速度用的屏幕中心区域
   center_flow: [0.375, 0.333, 0.250, 0.333]
 
 templates:
-  # calibrate 生成;不存在时 detector 走 HSV-only 降级模式并告警
-  kill_banner: kill_banner_1440p.png
-  death_banner: death_banner_1440p.png
   headshot_icon: headshot_icon_1440p.png
   round_won: round_won_1440p.png
   round_lost: round_lost_1440p.png

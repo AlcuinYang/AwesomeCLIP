@@ -3,16 +3,20 @@
 # 请用 `vmontage calibrate <样例帧>` 核对并截取该分辨率的模板。
 resolution: [1920, 1080]
 
+# 2026-07 依据用户真实素材(国服客户端)重新标定
 rois:
-  kill_banner: [0.360, 0.780, 0.280, 0.095]
-  scoreboard_ally: [0.290, 0.020, 0.155, 0.075]
-  scoreboard_enemy: [0.555, 0.020, 0.155, 0.075]
+  # 右上击杀信息流:自己参与的行头像带金色高亮边框(检测主信号)
+  kill_feed: [0.700, 0.050, 0.300, 0.110]
+  # 顶部记分区双方头像条(数彩色头像连通块=存活数)
+  scoreboard_ally: [0.215, 0.016, 0.190, 0.058]
+  scoreboard_enemy: [0.585, 0.016, 0.190, 0.058]
+  # 回合结束胜利/失败横幅(屏幕中央偏上;需模板)
   round_end_banner: [0.330, 0.170, 0.340, 0.130]
+  # 光流估计视角角速度用的屏幕中心区域
   center_flow: [0.375, 0.333, 0.250, 0.333]
 
 templates:
-  kill_banner: kill_banner_1080p.png
-  death_banner: death_banner_1080p.png
+  # 均为可选:headshot 图标在信息流行内;round_* 为结算横幅
   headshot_icon: headshot_icon_1080p.png
   round_won: round_won_1080p.png
   round_lost: round_lost_1080p.png

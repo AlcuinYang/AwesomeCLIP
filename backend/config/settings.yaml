@@ -2,19 +2,34 @@
 # 所有魔法数字必须住在这里(规格 §8 技术约束)。
 
 detector:
-  sample_fps: 6.0            # 采样帧率;击杀横幅持续约 4s,6fps 冗余充分(规格 §5.2)
+  sample_fps: 6.0            # 采样帧率;信息流行持续约 5-6s,6fps 冗余充分
   refine_window_s: 0.5       # 检出后在 ±0.5s 邻域内全帧率精定位起始帧
-  kill_min_gap_s: 0.30       # 两次击杀事件的最小间隔(去重)
-  banner_hsv:                # 击杀横幅 HSV 阈值(OpenCV 范围 H 0-179, S/V 0-255)
-    lower: [0, 60, 140]      # 默认对 Valorant 红色系横幅;calibrate 后可精调
-    upper: [12, 255, 255]
-    lower2: [168, 60, 140]   # 红色跨 0 度,需要第二段
-    upper2: [179, 255, 255]
-    min_area_ratio: 0.015    # ROI 内命中像素占比阈值,超过视为横幅出现
+  kill_min_gap_s: 0.15       # 同类事件精定位后的最小间隔(去重)
+  # 击杀信息流(右上):自己参与的行头像带金色高亮空心边框(依据真实素材标定)
+  feed_highlight_hsv:
+    lower: [18, 110, 200]    # 金框 H 20-33 / S>=120 / V>=220(留余量)
+    upper: [36, 255, 255]
+  feed_ring:                 # 空心环形状过滤(排除金发头像/金色皮肤等实心块)
+    min_w_frac: 0.016        # bbox 宽,相对帧宽(1080p 实测 ~54px = 0.028)
+    max_w_frac: 0.048
+    min_h_frac: 0.018        # bbox 高,相对帧高(实测 ~32px = 0.030)
+    max_h_frac: 0.050
+    max_fill: 0.45           # 命中像素/bbox 面积(环形应低)
+    max_center_density: 0.30 # bbox 中心 50% 区域命中密度(环形应近 0)
+  feed_victim_x_frac: 0.93   # 金框右缘超过帧宽该比例 → 该行是"我被击杀"
+  feed_highlight_s: 6.5      # 金框高亮寿命 = 信息流行寿命(实测 5-6s,脉冲发光):
+                             # TTL 记账窗口,窗口内计数瞬时回落不算行消失,
+                             # 计数超过在账行数才算新事件
+  feed_row_track:
+    strip_w: 160             # 行指纹尺寸(行横条灰度缩略图,仅精定位用)
+    strip_h: 18
+    refine_match: 0.55       # 精定位时按指纹找行诞生帧的宽松阈值
   template_match_threshold: 0.62   # 模板匹配置信度阈值(TM_CCOEFF_NORMED)
   headshot_match_threshold: 0.60
-  alive_cells: 5             # 记分区每侧头像格数
-  alive_saturation_threshold: 60   # 头像格平均饱和度低于此值视为灰化(阵亡)
+  # 存活数:记分区 ROI 内数彩色头像连通块(阵亡头像灰化/消失)
+  alive_saturation_threshold: 60
+  alive_value_threshold: 90
+  alive_min_area_frac: 0.03  # 连通块面积 >= ROI 面积该比例才算一个头像
   alive_min_change_interval_s: 0.5 # alive_state 事件的最小发射间隔
   flick:
     pre_window_s: [0.10, 0.30]     # 击杀前取帧对的时间窗

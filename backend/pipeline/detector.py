@@ -1,15 +1,16 @@
-"""L1 检测器:规则 CV(HSV + 模板匹配 + 稀疏光流),输出原子事件流(规格 §5.2)。
+"""L1 检测器 v2:击杀信息流金框检测(规则 CV),输出原子事件流。
 
-策略:
-- 主扫描:ffmpeg rawvideo 管道按 sample_fps(默认 6fps)取帧,HSV 检测击杀横幅出现、
-  存活状态变化、回合结束横幅。
-- 精定位:横幅上升沿检出后,用 cv2.VideoCapture 在 ±refine_window_s 邻域内全帧率
-  找到横幅起始帧。
-- 方向区分:kill/death 模板匹配;模板缺失时降级为 HSV-only(全部记为 kill,
-  confidence 压到 0.6)并告警——运行 `vmontage calibrate` 生成模板后恢复。
-- 多杀再触发:横幅持续期间 HSV 命中面积显著跳升(新横幅行叠加)视为又一次击杀。
-- flick 特征:每个 kill 取击杀前 pre_window 的帧对,屏幕中心区域稀疏光流估计
-  视角角速度(度/秒)写入事件。
+方案(2026-07 依据用户真实素材重设计,见 DECISIONS DX35):
+- 主信号:右上击杀信息流中,"我"参与的行头像带金色高亮空心边框。
+  金框是空心环(fill 低、bbox 中心无命中),可与金发头像/金色皮肤区分;
+  金框右缘位于行尾(帧宽 feed_victim_x_frac 之外)= 我被击杀,否则 = 我的击杀。
+  该信号无需任何模板即可工作;多杀 = 多行金框,天然支持。
+- 主扫描:ffmpeg rawvideo 管道按 sample_fps(默认 6fps)取帧;金框计数上升 → 事件。
+- 精定位:cv2.VideoCapture 在 ±refine_window_s 邻域内全帧率找计数首次到达的帧。
+- 存活状态:顶部记分区 ROI 内数高饱和度头像连通块(阵亡头像灰化/消失)。
+- 回合结束:胜利/失败横幅模板匹配(可选,缺模板则不产出并告警)。
+- 爆头:信息流新行内模板匹配爆头图标(可选)。
+- flick 特征:每个 kill 取击杀前帧对,屏幕中心稀疏光流估计视角角速度(度/秒)。
 """
 from __future__ import annotations
 
@@ -72,25 +73,23 @@ class TemplateSet:
         return all(self._cache.get(k) is not None for k in keys)
 
 
-def _hsv_banner_ratio(roi_bgr: np.ndarray, hsv_cfg: dict) -> float:
-    """ROI 内命中横幅 HSV 阈值的像素占比(红色跨 0 度,双段合并)。"""
-    if roi_bgr.size == 0:
-        return 0.0
-    hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, np.array(hsv_cfg["lower"]), np.array(hsv_cfg["upper"]))
-    if "lower2" in hsv_cfg:
-        mask |= cv2.inRange(hsv, np.array(hsv_cfg["lower2"]), np.array(hsv_cfg["upper2"]))
-    return float(np.count_nonzero(mask)) / mask.size
-
-
 def _template_score(roi_bgr: np.ndarray, template: np.ndarray) -> float:
     th, tw = template.shape[:2]
     rh, rw = roi_bgr.shape[:2]
-    if rh < th or rw < tw:
-        # 模板比 ROI 大(分辨率不符)按不匹配处理
+    if rh < th or rw < tw or th == 0 or tw == 0:
         return 0.0
     res = cv2.matchTemplate(roi_bgr, template, cv2.TM_CCOEFF_NORMED)
     return float(res.max())
+
+
+@dataclass(frozen=True)
+class FeedRing:
+    """信息流中的一个金色高亮框(帧坐标 bbox)。"""
+    kind: str          # "kill" | "death"
+    x: int
+    y: int
+    w: int
+    h: int
 
 
 # ------------------------------------------------------------------ 帧采样
@@ -115,7 +114,6 @@ def iter_sampled_frames(video: Path, sample_fps: float,
             if len(buf) < frame_size:
                 break
             frame = np.frombuffer(buf, dtype=np.uint8).reshape(height, width, 3)
-            # fps 滤镜输出帧 i 对应源时间约 i/sample_fps(取窗口起点)
             yield idx / sample_fps, frame
             idx += 1
     finally:
@@ -138,69 +136,140 @@ class Detector:
         self.rois = {k: Roi.from_list(v) for k, v in roi_profile["rois"].items()}
         self.templates = TemplateSet(roi_profile.get("templates", {}), project_templates_dir)
         self.warnings: list[str] = []
-        if not self.templates.has("kill_banner", "death_banner"):
-            self.warnings.append(
-                "缺少 kill/death 横幅模板 → HSV-only 降级模式:所有横幅记为 kill,"
-                "confidence=0.6。运行 `vmontage calibrate <样例帧>` 生成模板。")
         if not self.templates.has("round_won", "round_lost"):
-            self.warnings.append("缺少回合结束横幅模板,round_end 事件不产出。")
+            self.warnings.append("缺少回合结束横幅模板(可选),round_end 事件不产出;"
+                                 "可用 `vmontage calibrate <帧> --kind round-won/round-lost` 生成。")
+        if not self.templates.has("headshot_icon"):
+            self.warnings.append("缺少爆头图标模板(可选),headshot 一律为 False;"
+                                 "flick 判定因此不可用。")
+
+    # ---------------------------------------------------------- 金框识别
+    def _feed_rings(self, frame: np.ndarray) -> list[FeedRing]:
+        roi = self.rois["kill_feed"]
+        crop = roi.crop(frame)
+        if crop.size == 0:
+            return []
+        fh, fw = frame.shape[:2]
+        hsv_cfg = self.cfg["feed_highlight_hsv"]
+        ring_cfg = self.cfg["feed_ring"]
+        hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array(hsv_cfg["lower"]), np.array(hsv_cfg["upper"]))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+        n, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+        rings: list[FeedRing] = []
+        x_off = int(roi.x * fw)
+        y_off = int(roi.y * fh)
+        min_h = ring_cfg["min_h_frac"] * fh
+        max_h = ring_cfg["max_h_frac"] * fh
+
+        def accept(x: int, y: int, w: int, h: int) -> bool:
+            sub = mask[y:y + h, x:x + w]
+            if sub.size == 0 or sub.mean() / 255 > float(ring_cfg["max_fill"]):
+                return False
+            cx0, cy0 = x + w // 4, y + h // 4
+            center = mask[cy0:cy0 + max(1, h // 2), cx0:cx0 + max(1, w // 2)]
+            return not (center.size and
+                        center.mean() / 255 > float(ring_cfg["max_center_density"]))
+
+        for i in range(1, n):
+            x, y, w, h, _ = stats[i]
+            if not (ring_cfg["min_w_frac"] * fw <= w <= ring_cfg["max_w_frac"] * fw):
+                continue
+            # 连杀时相邻行金框只差 1-3px,闭合后会粘成一个 2-3 倍高的块:按行高切开逐段验环
+            typical_h = (min_h + max_h) / 2
+            n_rows = max(1, round(h / typical_h))
+            if h < min_h or h / n_rows < min_h * 0.6 or h / n_rows > max_h:
+                continue
+            sub_h = h // n_rows
+            for j in range(n_rows):
+                sy = y + j * sub_h
+                if not accept(x, sy, w, sub_h):
+                    continue
+                right_frac = (x_off + x + w) / fw
+                kind = ("death" if right_frac >= float(self.cfg["feed_victim_x_frac"])
+                        else "kill")
+                rings.append(FeedRing(kind=kind, x=x_off + x, y=y_off + sy,
+                                      w=w, h=sub_h))
+        return rings
+
+    def _row_strip(self, frame: np.ndarray, ring: FeedRing,
+                   tall: bool = False) -> np.ndarray:
+        """金框所在行的内容指纹:行横条(feed 左缘→帧右缘)灰度缩略图。
+
+        tall=True 返回上下各加半行的加高探测条(匹配时供指纹垂直滑动,
+        容忍行的像素级位移)。
+        """
+        fh, fw = frame.shape[:2]
+        cfg = self.cfg["feed_row_track"]
+        sw, sh = int(cfg["strip_w"]), int(cfg["strip_h"])
+        x0 = int(self.rois["kill_feed"].x * fw)
+        pad = ring.h // 2 if tall else 0
+        y0 = max(0, ring.y - pad)
+        y1 = min(fh, ring.y + ring.h + pad)
+        band = cv2.cvtColor(frame[y0:y1, x0:fw], cv2.COLOR_BGR2GRAY)
+        return cv2.resize(band, (sw, sh * 2 if tall else sh))
+
+    @staticmethod
+    def _strip_corr(probe_tall: np.ndarray, strip: np.ndarray) -> float:
+        """指纹在加高探测条内垂直滑动的最大归一化相关。"""
+        res = cv2.matchTemplate(probe_tall, strip, cv2.TM_CCOEFF_NORMED)
+        v = float(res.max())
+        return 0.0 if np.isnan(v) else v
 
     # ---------------------------------------------------------- 主入口
     def detect(self, video: Path, rel_source: str) -> SourceEvents:
         meta = ffprobe_meta(video)
         vm = VideoMeta(width=meta["width"], height=meta["height"],
                        fps=meta["fps"], duration_s=meta["duration_s"])
-        banner_hits, alive_events, round_events = self._scan(video, vm)
+        hits, alive_events, round_events = self._scan(video, vm)
         cap = cv2.VideoCapture(str(video))
         try:
-            kill_events = self._refine_banners(cap, vm, banner_hits)
-            for ev in kill_events:
+            feed_events = self._refine_hits(cap, vm, hits)
+            for ev in feed_events:
                 if isinstance(ev, KillEvent):
                     ev.pre_kill_angular_velocity_deg_s = self._angular_velocity(cap, vm, ev.t)
         finally:
             cap.release()
         events: list[Event] = sorted(
-            [*kill_events, *alive_events, *round_events], key=lambda e: e.t)
+            [*feed_events, *alive_events, *round_events], key=lambda e: e.t)
         return SourceEvents(source=rel_source, video_meta=vm, events=events)
 
     # ---------------------------------------------------------- 采样扫描
     def _scan(self, video: Path, vm: VideoMeta):
         cfg = self.cfg
-        hsv_cfg = cfg["banner_hsv"]
         sample_fps = float(cfg["sample_fps"])
-        min_ratio = float(hsv_cfg["min_area_ratio"])
 
-        # (t, 精定位用的面积阈值):上升沿用基础阈值;面积跳升(多杀)用抬高阈值,
-        # 否则回溯会撞上仍在显示的上一条横幅
-        banner_hits: list[tuple[float, float]] = []
+        # 去抖(DX36):金框高亮与信息流行同寿命(约 5-6s,脉冲发光);按 TTL 记账,
+        # 窗口内计数瞬时回落不算行消失,计数超过在账行数才判定新事件。
+        # hits: (t, kind, 该行指纹, 当时同类金框数),精定位时按指纹+计数找行的诞生帧。
+        hits: list[tuple[float, str, np.ndarray, int]] = []
         alive_events: list[AliveStateEvent] = []
         round_events: list[RoundEndEvent] = []
 
-        prev_present = False
-        rolling_min_ratio = 0.0
+        highlight_s = float(cfg["feed_highlight_s"])
+        active: dict[str, list[float]] = {"kill": [], "death": []}
         last_alive: Optional[tuple[int, int]] = None
         last_alive_t = -1e9
         prev_round_present = False
-
-        roi_banner = self.rois["kill_banner"]
+        check_round = self.templates.has("round_won", "round_lost")
         roi_ally = self.rois["scoreboard_ally"]
         roi_enemy = self.rois["scoreboard_enemy"]
         roi_round = self.rois["round_end_banner"]
-        check_round = self.templates.has("round_won", "round_lost")
 
         for t, frame in iter_sampled_frames(video, sample_fps, vm.width, vm.height):
-            ratio = _hsv_banner_ratio(roi_banner.crop(frame), hsv_cfg)
-            present = ratio >= min_ratio
-            if present and not prev_present:
-                banner_hits.append((t, min_ratio))
-                rolling_min_ratio = ratio
-            elif present:
-                # 多杀:横幅持续期间面积显著跳升 → 新横幅行叠加,再触发一次
-                rolling_min_ratio = min(rolling_min_ratio, ratio)
-                if rolling_min_ratio > 0 and ratio >= rolling_min_ratio * 1.6:
-                    banner_hits.append((t, rolling_min_ratio * 1.3))
-                    rolling_min_ratio = ratio
-            prev_present = present
+            rings = self._feed_rings(frame)
+            counts = {"kill": [r for r in rings if r.kind == "kill"],
+                      "death": [r for r in rings if r.kind == "death"]}
+            for kind, kind_rings in counts.items():
+                active[kind] = [t0 for t0 in active[kind] if t - t0 < highlight_s]
+                extra = len(kind_rings) - len(active[kind])
+                if extra <= 0:
+                    continue
+                # 新行出现在信息流下方,取 y 最大的 extra 个作为候选
+                for ring in sorted(kind_rings, key=lambda r: r.y)[-extra:]:
+                    hits.append((t, kind, self._row_strip(frame, ring),
+                                 len(kind_rings)))
+                    active[kind].append(t)
 
             ally = self._count_alive(roi_ally.crop(frame))
             enemy = self._count_alive(roi_enemy.crop(frame))
@@ -223,48 +292,49 @@ class Detector:
                         frame=int(t * vm.fps), t=round(t, 3),
                         won=won_s >= lost_s, confidence=round(max(won_s, lost_s), 3)))
                 prev_round_present = round_present
-        return banner_hits, alive_events, round_events
+        return hits, alive_events, round_events
 
     def _count_alive(self, roi_bgr: np.ndarray) -> int:
-        """记分区一侧头像格:按列均分,平均饱和度高于阈值的格子数=存活数。"""
-        cells = int(self.cfg["alive_cells"])
+        """记分区一侧:数高饱和度头像连通块(阵亡头像灰化/消失)。"""
         if roi_bgr.size == 0:
             return 0
         hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
-        sat = hsv[:, :, 1]
-        w = sat.shape[1]
-        alive = 0
-        for i in range(cells):
-            cell = sat[:, i * w // cells:(i + 1) * w // cells]
-            if cell.size and float(cell.mean()) >= float(self.cfg["alive_saturation_threshold"]):
-                alive += 1
-        return alive
+        mask = ((hsv[:, :, 1] >= int(self.cfg["alive_saturation_threshold"])) &
+                (hsv[:, :, 2] >= int(self.cfg["alive_value_threshold"]))).astype(np.uint8) * 255
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        n, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+        min_area = float(self.cfg["alive_min_area_frac"]) * roi_bgr.shape[0] * roi_bgr.shape[1]
+        return sum(1 for i in range(1, n) if stats[i][4] >= min_area)
 
-    # ---------------------------------------------------------- 精定位 + 方向
-    def _refine_banners(self, cap: cv2.VideoCapture, vm: VideoMeta,
-                        banner_hits: list[tuple[float, float]]) -> list[Event]:
+    # ---------------------------------------------------------- 精定位
+    def _refine_hits(self, cap: cv2.VideoCapture, vm: VideoMeta,
+                     hits: list[tuple[float, str, "np.ndarray", int]]) -> list[Event]:
         cfg = self.cfg
-        hsv_cfg = cfg["banner_hsv"]
         window = float(cfg["refine_window_s"])
         min_gap = float(cfg["kill_min_gap_s"])
-        roi_banner = self.rois["kill_banner"]
-        has_dir_templates = self.templates.has("kill_banner", "death_banner")
-        thr = float(cfg["template_match_threshold"])
-
+        match_thr = float(cfg["feed_row_track"]["refine_match"])
         events: list[Event] = []
-        last_t = -1e9
-        for t_hit, ratio_threshold in banner_hits:
-            # ±window 内全帧率向前回溯,找第一个过阈帧(阈值随命中类型而定)
+        last_t = {"kill": -1e9, "death": -1e9}
+
+        for t_hit, kind, strip, count_at_hit in hits:
             f_start = max(0, int((t_hit - window) * vm.fps))
             f_end = int((t_hit + window) * vm.fps)
-            precise_frame, precise_img = None, None
+            precise_frame, precise_img, new_ring = None, None, None
             cap.set(cv2.CAP_PROP_POS_FRAMES, f_start)
             for f in range(f_start, f_end + 1):
                 ok, frame = cap.read()
                 if not ok:
                     break
-                if _hsv_banner_ratio(roi_banner.crop(frame), hsv_cfg) >= ratio_threshold:
-                    precise_frame, precise_img = f, frame
+                rings_f = [r for r in self._feed_rings(frame) if r.kind == kind]
+                match = None
+                if len(rings_f) >= count_at_hit:  # 计数到位 + 指纹匹配双条件
+                    match = next(
+                        (r for r in rings_f
+                         if self._strip_corr(self._row_strip(frame, r, tall=True),
+                                             strip) >= match_thr),
+                        None)
+                if match is not None:
+                    precise_frame, precise_img, new_ring = f, frame, match
                     break
             if precise_frame is None:
                 precise_frame = int(t_hit * vm.fps)
@@ -272,30 +342,31 @@ class Detector:
                 if precise_img is None:
                     continue
             t = precise_frame / vm.fps
-            if t - last_t < min_gap:
+            if t - last_t[kind] < min_gap:
                 continue
-            last_t = t
+            last_t[kind] = t
 
-            crop = roi_banner.crop(precise_img)
-            if has_dir_templates:
-                kill_s = _template_score(crop, self.templates.get("kill_banner"))
-                death_s = _template_score(crop, self.templates.get("death_banner"))
-                if max(kill_s, death_s) < thr:
-                    continue  # HSV 误报,模板双双不认
-                if death_s > kill_s:
-                    events.append(DeathEvent(frame=precise_frame, t=round(t, 3),
-                                             confidence=round(death_s, 3)))
-                    continue
-                confidence = round(kill_s, 3)
-            else:
-                confidence = 0.6  # HSV-only 降级
-            headshot = False
-            hs_tpl = self.templates.get("headshot_icon")
-            if hs_tpl is not None:
-                headshot = _template_score(crop, hs_tpl) >= float(cfg["headshot_match_threshold"])
+            if kind == "death":
+                events.append(DeathEvent(frame=precise_frame, t=round(t, 3),
+                                         confidence=0.9))
+                continue
+            headshot = self._headshot_in_row(precise_img, new_ring)
             events.append(KillEvent(frame=precise_frame, t=round(t, 3),
-                                    headshot=headshot, confidence=confidence))
+                                    headshot=headshot, confidence=0.9))
         return events
+
+    def _headshot_in_row(self, frame: np.ndarray, ring: Optional[FeedRing]) -> bool:
+        """在新增信息流行的横条区域内匹配爆头图标模板(可选能力)。"""
+        tpl = self.templates.get("headshot_icon")
+        if tpl is None or ring is None:
+            return False
+        fh, fw = frame.shape[:2]
+        roi = self.rois["kill_feed"]
+        y0 = max(0, ring.y - ring.h // 3)
+        y1 = min(fh, ring.y + ring.h + ring.h // 3)
+        x0 = int(roi.x * fw)
+        row = frame[y0:y1, x0:fw]
+        return _template_score(row, tpl) >= float(self.cfg["headshot_match_threshold"])
 
     # ---------------------------------------------------------- flick 光流
     def _angular_velocity(self, cap: cv2.VideoCapture, vm: VideoMeta,

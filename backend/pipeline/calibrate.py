@@ -22,10 +22,9 @@ from .detector import ASSETS_TEMPLATES, Roi
 
 VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".avi"}
 
+# kill/death 已无需模板(信息流金框方案,DX35);仅剩两类可选模板
 KIND_TO_ROI = {
-    "kill": ("kill_banner", "kill_banner"),
-    "death": ("kill_banner", "death_banner"),
-    "headshot": ("kill_banner", "headshot_icon"),
+    "headshot": ("kill_feed", "headshot_icon"),
     "round-won": ("round_end_banner", "round_won"),
     "round-lost": ("round_end_banner", "round_lost"),
 }
