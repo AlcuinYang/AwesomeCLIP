@@ -1,35 +1,36 @@
-"""L2 语义层:原子事件 → 带标签/证据的片段(规格 §5.3)。
+"""L2 语义层:原子事件 → 带标签/证据的片段。
 
-- 片段切分:击杀簇(间隔 < merge_gap 合并)外扩 pre_kill/post_kill。
-- multikill_N:滑动窗口(默认 8s)内击杀数的最大值 N(N>=2)。
+- 片段切分:击杀簇(间隔 < merge_gap 合并,**自己被杀则强制断簇**)外扩
+  pre_kill/post_kill。
+- multikill_N:**簇内总击杀数**(用户定义:不连续击杀也算,如 1,2,1 分布的
+  四杀只要中间没死就是一段四杀高光;取代规格 §5.3 的滑动窗口口径)。
 - clutch_1vN:某时刻 ally==1 且 enemy==N(N>=2),此后至 round_end(won) 击杀 >= N-容差。
 - flick:headshot 且 pre_kill_angular_velocity >= 阈值。
 """
 from __future__ import annotations
 
 from ..schemas.models import (
-    AliveStateEvent, AliveStateEvidence, ClipSpan, Evidence, EventsFile, KillEvent,
-    KillEvidence, RoundEndEvent, RoundWonEvidence, ScoreCard, ScorecardsFile,
+    AliveStateEvent, AliveStateEvidence, ClipSpan, DeathEvent, Evidence, EventsFile,
+    KillEvent, KillEvidence, RoundEndEvent, RoundWonEvidence, ScoreCard, ScorecardsFile,
 )
 
 
-def _cluster_kills(kills: list[KillEvent], merge_gap: float) -> list[list[KillEvent]]:
+def _cluster_kills(kills: list[KillEvent], merge_gap: float,
+                   deaths: list[DeathEvent] | None = None) -> list[list[KillEvent]]:
+    """击杀聚簇:间隔 < merge_gap 合并;两杀之间若有自己的 death 则断簇。"""
+    death_ts = sorted(d.t for d in deaths) if deaths else []
+
+    def died_between(t0: float, t1: float) -> bool:
+        return any(t0 < dt <= t1 for dt in death_ts)
+
     clusters: list[list[KillEvent]] = []
     for k in sorted(kills, key=lambda e: e.t):
-        if clusters and k.t - clusters[-1][-1].t < merge_gap:
+        if clusters and k.t - clusters[-1][-1].t < merge_gap \
+                and not died_between(clusters[-1][-1].t, k.t):
             clusters[-1].append(k)
         else:
             clusters.append([k])
     return clusters
-
-
-def _max_kills_in_window(ts: list[float], window: float) -> int:
-    best, j = 0, 0
-    for i in range(len(ts)):
-        while ts[i] - ts[j] > window:
-            j += 1
-        best = max(best, i - j + 1)
-    return best
 
 
 def _find_clutches(alive_states: list[AliveStateEvent], kills: list[KillEvent],
@@ -59,18 +60,18 @@ def build_scorecards(events_file: EventsFile, settings: dict) -> ScorecardsFile:
     sem = settings["semantic"]
     clip_cfg = sem["clip"]
     flick_thr = float(sem["flick_angular_velocity_deg_s"])
-    window = float(sem["multikill_window_s"])
     clips: list[ScoreCard] = []
     seq = 0
 
     for src in events_file.sources:
         kills = [e for e in src.events if isinstance(e, KillEvent)]
+        deaths = [e for e in src.events if isinstance(e, DeathEvent)]
         alive_states = [e for e in src.events if isinstance(e, AliveStateEvent)]
         round_ends = [e for e in src.events if isinstance(e, RoundEndEvent)]
         clutches = _find_clutches(alive_states, kills, round_ends,
                                   int(sem["clutch_kill_tolerance"]))
 
-        for cluster in _cluster_kills(kills, float(clip_cfg["merge_gap_s"])):
+        for cluster in _cluster_kills(kills, float(clip_cfg["merge_gap_s"]), deaths):
             seq += 1
             ts = [k.t for k in cluster]
             start_t = max(0.0, ts[0] - float(clip_cfg["pre_kill_s"]))
@@ -81,7 +82,7 @@ def build_scorecards(events_file: EventsFile, settings: dict) -> ScorecardsFile:
                              pre_kill_angular_velocity_deg_s=k.pre_kill_angular_velocity_deg_s)
                 for k in cluster])
 
-            n_multi = _max_kills_in_window(ts, window)
+            n_multi = len(cluster)  # 簇内总击杀数(不连续也算,用户定义)
             if n_multi >= 2:
                 tags.append(f"multikill_{min(n_multi, 5)}")
 

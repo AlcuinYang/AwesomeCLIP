@@ -40,13 +40,13 @@ detector:
     "2560x1440": roi_1440p.yaml
 
 semantic:
-  multikill_window_s: 8.0    # 滑动窗口内击杀数 >= N → multikill_N
+  # multikill_N = 簇内总击杀数(用户定义:1,2,1 分布的四杀只要中间没死也算)
   clutch_kill_tolerance: 1   # clutch_1vN 要求此后击杀 >= N - 容差
   flick_angular_velocity_deg_s: 180.0   # flick 判定阈值,需真实素材标定(规格 §9)
   clip:
     pre_kill_s: 2.5          # 击杀簇向前外扩
     post_kill_s: 1.2         # 向后外扩
-    merge_gap_s: 5.0         # 击杀间隔小于此值合并为同一片段
+    merge_gap_s: 12.0        # 击杀间隔小于此值且中间没死 → 并为同一簇/片段
     pre_kill_min_s: 1.0      # fit_duration 收缩 pre_kill 的下限
 
 scorer:
