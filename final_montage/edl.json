@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "music": "music/demo_beat.wav",
+  "target_duration_s": 73.6073,
+  "global_effects": {
+    "frame_drop": false
+  },
+  "timeline": [
+    {
+      "clip_id": "clip_008",
+      "source": "sources/test5.mp4",
+      "in_t": 9.667,
+      "out_t": 19.059,
+      "timeline_start_t": 0.0,
+      "snap": {
+        "cut_beat_t": null,
+        "mode": "none"
+      },
+      "effects": {
+        "frame_drop": false,
+        "frame_drop_strength": 0.5,
+        "speed_ramp": null
+      },
+      "audio": {
+        "game_volume": 0.35,
+        "duck_music": false
+      }
+    },
+    {
+      "clip_id": "clip_009",
+      "source": "sources/test5.mp4",
+      "in_t": 26.567,
+      "out_t": 42.972,
+      "timeline_start_t": 9.3925,
+      "snap": {
+        "cut_beat_t": 9.3925,
+        "mode": "cut_on_beat"
+      },
+      "effects": {
+        "frame_drop": false,
+        "frame_drop_strength": 0.5,
+        "speed_ramp": null
+      },
+      "audio": {
+        "game_volume": 0.35,
+        "duck_music": false
+      }
+    },
+    {
+      "clip_id": "clip_011",
+      "source": "sources/test6.mp4",
+      "in_t": 1.983,
+      "out_t": 4.328,
+      "timeline_start_t": 25.7974,
+      "snap": {
+        "cut_beat_t": 25.7974,
+        "mode": "cut_on_beat"
+      },
+      "effects": {
+        "frame_drop": false,
+        "frame_drop_strength": 0.5,
+        "speed_ramp": null
+      },
+      "audio": {
+        "game_volume": 0.35,
+        "duck_music": false
+      }
+    },
+    {
+      "clip_id": "clip_012",
+      "source": "sources/test6.mp4",
+      "in_t": 13.067,
+      "out_t": 15.412,
+      "timeline_start_t": 28.1426,
+      "snap": {
+        "cut_beat_t": 28.1426,
+        "mode": "cut_on_beat"
+      },
+      "effects": {
+        "frame_drop": false,
+        "frame_drop_strength": 0.5,
+        "speed_ramp": null
+      },
+      "audio": {
+        "game_volume": 0.35,
+        "duck_music": false
+      }
+    },
+    {
+      "clip_id": "clip_013",
+      "source": "sources/test6.mp4",
+      "in_t": 20.333,
+      "out_t": 31.583,
+      "timeline_start_t": 30.4878,
+      "snap": {
+        "cut_beat_t": 30.4878,
+        "mode": "cut_on_beat"
+      },
+      "effects": {
+        "frame_drop": false,
+        "frame_drop_strength": 0.5,
+        "speed_ramp": null
+      },
+      "audio": {
+        "game_volume": 0.35,
+        "duck_music": false
+      }
+    },
+    {
+      "clip_id": "clip_014",
+      "source": "sources/test6.mp4",
+      "in_t": 35.333,
+      "out_t": 37.678,
+      "timeline_start_t": 41.7379,
+      "snap": {
+        "cut_beat_t": 41.7379,
+        "mode": "cut_on_beat"
+      },
+      "effects": {
+        "frame_drop": false,
+        "frame_drop_strength": 0.5,
+        "speed_ramp": null
+      },
+      "audio": {
+        "game_volume": 0.35,
+        "duck_music": false
+      }
+    },
+    {
+      "clip_id": "clip_015",
+      "source": "sources/test6.mp4",
+      "in_t": 42.633,
+      "out_t": 44.967,
+      "timeline_start_t": 44.0831,
+      "snap": {
+        "cut_beat_t": 44.0831,
+        "mode": "cut_on_beat"
+      },
+      "effects": {
+        "frame_drop": false,
+        "frame_drop_strength": 0.5,
+        "speed_ramp": null
+      },
+      "audio": {
+        "game_volume": 0.35,
+        "duck_music": false
+      }
+    },
+    {
+      "clip_id": "clip_016",
+      "source": "sources/test6.mp4",
+      "in_t": 49.95,
+      "out_t": 64.783,
+      "timeline_start_t": 46.4167,
+      "snap": {
+        "cut_beat_t": 46.4167,
+        "mode": "cut_on_beat"
+      },
+      "effects": {
+        "frame_drop": false,
+        "frame_drop_strength": 0.5,
+        "speed_ramp": null
+      },
+      "audio": {
+        "game_volume": 0.35,
+        "duck_music": false
+      }
+    }
+  ],
+  "render": {
+    "resolution": "source",
+    "codec": "h264_nvenc",
+    "crf_equivalent": 20
+  }
+}

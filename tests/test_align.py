@@ -67,6 +67,17 @@ def test_fit_duration_drops_low_score(settings):
     assert total <= 10 + 0.5  # 允许最后一段拍点填缝的余量
 
 
+def test_target_clamped_to_music_length(settings):
+    """目标时长超过音乐长度时收紧到最后一个拍点(尾段才有拍点可吸附)。"""
+    events = _events_multi()
+    cards = _cards(events, settings)
+    beats = _beats(interval=0.5, n=40)  # 音乐只有 ~20s
+    edl, warnings = build_edl(cards, beats, events, settings, target_duration_s=60)
+    total = sum(e.out_t - e.in_t for e in edl.timeline)
+    assert total <= beats.beats_t[-1] + 0.5
+    assert any("音乐长度" in w for w in warnings)
+
+
 def test_cap_marathon_clip(settings):
     """65s 马拉松击杀簇裁到 max_clip_s 内,窗口取杀数最密段。"""
     from backend.pipeline.align import Clip, cap_clip_length

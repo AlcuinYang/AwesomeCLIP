@@ -183,6 +183,11 @@ def build_edl(cards: ScorecardsFile, beats: BeatsFile, events: EventsFile,
     clips = clips_from_cards(cards, events)
     if not clips:
         raise ValueError("没有 selected 的片段,请检查 scorecards.json 或调低 scorer.min_score。")
+    # 成片不能比音乐长:超出部分没有拍点可吸附,BGM 也会提前收尾
+    if beats.beats_t and target_duration_s > beats.beats_t[-1]:
+        warnings.append(f"目标时长 {target_duration_s:.0f}s 超过音乐长度,"
+                        f"收紧到最后一个拍点 {beats.beats_t[-1]:.1f}s。")
+        target_duration_s = beats.beats_t[-1]
     clips = fit_clips(clips, target_duration_s, settings, warnings)
     entries, place_warnings = place_clips(clips, beats.beats_t, settings,
                                           anchor_align=anchor_align)
