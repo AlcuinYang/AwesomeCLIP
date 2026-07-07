@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+frontend/.next/
+frontend/.env.local
+dist/
+*.egg-info/
+.pytest_cache/
+# 剪辑会话项目目录(用户数据)
+project_*/
+# 模板资产由用户 calibrate 生成,体积小可入库;测试生成的除外
+tests/fixtures/*.mp4
+tests/fixtures/*.wav
+tests/fixtures/*.png
+.env

@@ -1,0 +1,23 @@
+# 2560x1440 ROI 校准参数。坐标一律为相对比例 [x, y, w, h](相对全帧宽高)。
+# 数值基于 Valorant 默认 HUD 布局的公开参考(daseyun/valorant-timestamp-finder 思路),
+# 首次使用请用 `vmontage calibrate <样例帧>` 核对并截取模板。
+resolution: [2560, 1440]
+
+rois:
+  # 击杀横幅:屏幕下方中央(准星下方)
+  kill_banner: [0.360, 0.780, 0.280, 0.095]
+  # 顶部记分区(含双方头像格),split 成左右两半判存活
+  scoreboard_ally: [0.290, 0.020, 0.155, 0.075]
+  scoreboard_enemy: [0.555, 0.020, 0.155, 0.075]
+  # 回合结束胜利/失败横幅(屏幕中央偏上)
+  round_end_banner: [0.330, 0.170, 0.340, 0.130]
+  # 光流估计视角角速度用的屏幕中心区域
+  center_flow: [0.375, 0.333, 0.250, 0.333]
+
+templates:
+  # calibrate 生成;不存在时 detector 走 HSV-only 降级模式并告警
+  kill_banner: kill_banner_1440p.png
+  death_banner: death_banner_1440p.png
+  headshot_icon: headshot_icon_1440p.png
+  round_won: round_won_1440p.png
+  round_lost: round_lost_1440p.png

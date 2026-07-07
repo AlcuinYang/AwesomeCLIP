@@ -1,0 +1,104 @@
+# vmontage 全局默认配置。项目目录下同名 settings.yaml 可覆盖任意键(浅合并两层)。
+# 所有魔法数字必须住在这里(规格 §8 技术约束)。
+
+detector:
+  sample_fps: 6.0            # 采样帧率;击杀横幅持续约 4s,6fps 冗余充分(规格 §5.2)
+  refine_window_s: 0.5       # 检出后在 ±0.5s 邻域内全帧率精定位起始帧
+  kill_min_gap_s: 0.30       # 两次击杀事件的最小间隔(去重)
+  banner_hsv:                # 击杀横幅 HSV 阈值(OpenCV 范围 H 0-179, S/V 0-255)
+    lower: [0, 60, 140]      # 默认对 Valorant 红色系横幅;calibrate 后可精调
+    upper: [12, 255, 255]
+    lower2: [168, 60, 140]   # 红色跨 0 度,需要第二段
+    upper2: [179, 255, 255]
+    min_area_ratio: 0.015    # ROI 内命中像素占比阈值,超过视为横幅出现
+  template_match_threshold: 0.62   # 模板匹配置信度阈值(TM_CCOEFF_NORMED)
+  headshot_match_threshold: 0.60
+  alive_cells: 5             # 记分区每侧头像格数
+  alive_saturation_threshold: 60   # 头像格平均饱和度低于此值视为灰化(阵亡)
+  alive_min_change_interval_s: 0.5 # alive_state 事件的最小发射间隔
+  flick:
+    pre_window_s: [0.10, 0.30]     # 击杀前取帧对的时间窗
+    hfov_deg: 103.0                # Valorant 默认水平视场角,像素位移→角度换算
+    max_features: 200              # 稀疏光流特征点数上限
+  resolutions:               # 分辨率 → ROI 校准文件;不匹配时报错不静默降级
+    "1920x1080": roi_1080p.yaml
+    "2560x1440": roi_1440p.yaml
+
+semantic:
+  multikill_window_s: 8.0    # 滑动窗口内击杀数 >= N → multikill_N
+  clutch_kill_tolerance: 1   # clutch_1vN 要求此后击杀 >= N - 容差
+  flick_angular_velocity_deg_s: 180.0   # flick 判定阈值,需真实素材标定(规格 §9)
+  clip:
+    pre_kill_s: 2.5          # 击杀簇向前外扩
+    post_kill_s: 1.2         # 向后外扩
+    merge_gap_s: 5.0         # 击杀间隔小于此值合并为同一片段
+    pre_kill_min_s: 1.0      # fit_duration 收缩 pre_kill 的下限
+
+scorer:
+  weights:
+    clutch_per_enemy: 1.5    # clutch_1vN 得分 = N * clutch_per_enemy
+    multikill_per_kill: 1.0  # multikill_N 得分 = N * multikill_per_kill
+    flick: 1.5               # 固定加分
+    round_context: 0.0       # 决胜局/赛点加分,V1 置 0(规格 §5.4)
+  min_score: 2.0             # selected 初选阈值
+
+beat:
+  energy_hop_s: 0.5          # 能量曲线采样间隔
+
+align:
+  mode: cut_on_beat          # cut_on_beat | anchor_align(高级模式,默认关)
+  max_snap_shift_s: 2.0      # 吸附拍点允许的最大位移,超出则不吸附并告警
+  fill_gap_by_extending_out: true  # 吸附产生的空隙由上一片段延长 out_t 填补
+
+audio:
+  game_volume: 0.35          # 游戏原声音量(规格 §5.8)
+  music_volume: 1.0
+  music_fade_out_s: 1.5
+
+render:
+  codec: h264_nvenc          # 不可用自动回退 libx264 并警告
+  crf_equivalent: 20
+  preview:
+    height: 720
+    bitrate: 2M
+    preset_fast: true
+  proxy:
+    height: 720
+    bitrate: 2M
+
+agent:
+  # OpenAI 兼容端点均可用。两种省钱姿势(测试期推荐):
+  #   a) 仍走 OpenRouter 换便宜模型:model 改成 moonshotai/kimi-k2 或
+  #      deepseek/deepseek-chat 等(注意选支持 function calling 的模型)
+  #   b) 直连厂商:base_url 改 https://api.moonshot.cn/v1(Kimi)或
+  #      https://ark.cn-beijing.volces.com/api/v3(火山方舟/豆包-Seed),
+  #      api_key_env 改成对应的环境变量名,model 用厂商自己的模型 ID
+  #      直连 Kimi K2.6 的完整示例(放到项目目录 settings.yaml 覆盖;已实测通过附录 A 五条指令):
+  #        agent:
+  #          base_url: https://api.moonshot.cn/v1
+  #          api_key_env: MOONSHOT_API_KEY
+  #          model: kimi-k2.6
+  #          narration_model: kimi-k2.6
+  #          temperature: null                    # K2.6/K2.5 不接受自定义温度,必须置 null
+  #      注意:保持思考模式开启(默认)。实测关思考(extra_body: thinking:{type:disabled})
+  #      会做错"其余按时间顺序"这类需要推理的指令;reasoning_content 透传已支持。
+  base_url: https://openrouter.ai/api/v1
+  api_key_env: OPENROUTER_API_KEY          # 从哪个环境变量读 API key
+  model: anthropic/claude-sonnet-4.5       # NL 剪辑指令用
+  narration_model: anthropic/claude-haiku-4.5   # L3 叙事用(便宜量大)
+  max_turns: 12                            # 单条指令的最大工具调用轮数
+  temperature: 0.2                         # 置 null 则不发送该参数
+  extra_body: {}                           # 厂商特有请求体,原样并入 payload
+
+effects:
+  frame_drop_strength: 0.5   # 默认丢帧比例
+  speed_ramp:
+    factor: 0.5
+    pre_s: 0.3
+    post_s: 0.5
+
+dataset:                     # P3:VLM 微调数据集导出(export-vlm-dataset)
+  negative_ratio: 1.0        # 负样本数 = 正样本数 × 该比例
+  negative_min_gap_s: 3.0    # 负样本距任何事件的最小间隔
+  test_every_n: 5            # 每 N 个样本留 1 个进一致性测试集
+  jpeg_quality: 90
