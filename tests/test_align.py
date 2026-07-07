@@ -67,6 +67,20 @@ def test_fit_duration_drops_low_score(settings):
     assert total <= 10 + 0.5  # 允许最后一段拍点填缝的余量
 
 
+def test_cap_marathon_clip(settings):
+    """65s 马拉松击杀簇裁到 max_clip_s 内,窗口取杀数最密段。"""
+    from backend.pipeline.align import Clip, cap_clip_length
+
+    c = Clip(clip_id="c", source="s", in_t=0.0, out_t=65.0,
+             anchors=[2.5, 14.0, 25.0, 27.0, 28.5, 30.0, 45.0, 60.0],
+             score=5.0, source_duration=70.0)
+    cap_clip_length(c, settings)
+    assert c.out_t - c.in_t <= 18.0 + 1e-6
+    # 最密窗口是 25.0-30.0 那四杀
+    assert c.anchors[0] >= 14.0 and 25.0 in c.anchors and 30.0 in c.anchors
+    assert len(c.anchors) >= 4
+
+
 def test_no_selected_raises(settings):
     events = _events_multi()
     cards = _cards(events, settings)

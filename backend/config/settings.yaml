@@ -48,6 +48,8 @@ semantic:
     post_kill_s: 1.2         # 向后外扩
     merge_gap_s: 12.0        # 击杀间隔小于此值且中间没死 → 并为同一簇/片段
     pre_kill_min_s: 1.0      # fit_duration 收缩 pre_kill 的下限
+    max_clip_s: 18.0         # 单片段时长上限:超长簇裁到杀数最密的窗口
+                             # (multikill 标签/分数仍按全簇总杀数计)
 
 scorer:
   weights:

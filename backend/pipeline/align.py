@@ -50,11 +50,38 @@ def clips_from_cards(cards: ScorecardsFile, events: EventsFile,
     ]
 
 
+def cap_clip_length(c: Clip, settings: dict) -> None:
+    """超长片段(马拉松击杀簇)裁到杀数最密的窗口,保住多杀精华。"""
+    clip_cfg = settings["semantic"]["clip"]
+    max_len = float(clip_cfg.get("max_clip_s", 0) or 0)
+    if max_len <= 0 or c.out_t - c.in_t <= max_len or not c.anchors:
+        return
+    pre = min(float(clip_cfg["pre_kill_s"]), c.anchors[0] - c.in_t)
+    post = min(float(clip_cfg["post_kill_s"]), c.out_t - c.anchors[-1])
+    inner = max(1.0, max_len - pre - post)
+    # 滑窗:选覆盖击杀数最多(平分取更短)的锚点窗口
+    best = (1, 0.0, 0, 0)  # (count, -span, i, j)
+    j = 0
+    for i in range(len(c.anchors)):
+        j = max(j, i)
+        while j + 1 < len(c.anchors) and c.anchors[j + 1] - c.anchors[i] <= inner:
+            j += 1
+        cand = (j - i + 1, -(c.anchors[j] - c.anchors[i]), i, j)
+        if cand > best:
+            best = cand
+    _, _, i, j = best
+    c.in_t = round(max(c.in_t, c.anchors[i] - pre), 3)
+    c.out_t = round(min(c.out_t, c.anchors[j] + post), 3)
+    c.anchors = [a for a in c.anchors if c.in_t <= a <= c.out_t]
+
+
 def fit_clips(clips: list[Clip], target: float, settings: dict,
               warnings: list[str]) -> list[Clip]:
-    """收缩 pre_kill / 丢低分片段直到总长 <= target(至少保留 1 个)。"""
+    """封顶超长片段 → 收缩 pre_kill → 丢低分片段,直到总长 <= target(至少保留 1 个)。"""
     clip_cfg = settings["semantic"]["clip"]
     pre_min = float(clip_cfg["pre_kill_min_s"])
+    for c in clips:
+        cap_clip_length(c, settings)
     total = sum(c.out_t - c.in_t for c in clips)
     if total <= target:
         return clips

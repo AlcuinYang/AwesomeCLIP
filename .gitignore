@@ -16,3 +16,5 @@ tests/fixtures/*.png
 .env
 # 真实测试素材(体积大,不入库)
 tests/VideoSet/
+demo_montage/
+project_realtest/
