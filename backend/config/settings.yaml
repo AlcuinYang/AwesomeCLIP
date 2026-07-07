@@ -26,6 +26,8 @@ detector:
     refine_match: 0.55       # 精定位时按指纹找行诞生帧的宽松阈值
   template_match_threshold: 0.62   # 模板匹配置信度阈值(TM_CCOEFF_NORMED)
   headshot_match_threshold: 0.60
+  # round_boundary 事件 V1 不自动产出(比分/帧差/存活三种规则方案实测均不可靠,
+  # 见 DX40);语义层已支持该事件断簇,后续由 OCR/VLM 补充
   # 存活数:记分区 ROI 内数彩色头像连通块(阵亡头像灰化/消失)
   alive_saturation_threshold: 60
   alive_value_threshold: 90

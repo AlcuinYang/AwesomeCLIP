@@ -245,7 +245,9 @@ class Detector:
         hits: list[tuple[float, str, np.ndarray, int]] = []
         alive_events: list[AliveStateEvent] = []
         round_events: list[RoundEndEvent] = []
-
+        # round_boundary 事件:比分数字/帧差/存活回升三种规则 CV 方案在半透明 HUD
+        # 上实测均不可靠(见 DX40),V1 不自动产出;schema 与语义层断簇逻辑已就绪,
+        # 后续 OCR/VLM(P3)可直接补充该事件。
         highlight_s = float(cfg["feed_highlight_s"])
         active: dict[str, list[float]] = {"kill": [], "death": []}
         last_alive: Optional[tuple[int, int]] = None

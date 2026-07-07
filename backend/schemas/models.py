@@ -58,7 +58,15 @@ class SpikePlantEvent(BaseModel):
     t: float
 
 
-Event = Union[KillEvent, DeathEvent, AliveStateEvent, RoundEndEvent, SpikePlantEvent]
+class RoundBoundaryEvent(BaseModel):
+    """回合切换(顶部比分数字发生变化):击杀簇在此强制断开。"""
+    type: Literal["round_boundary"] = "round_boundary"
+    frame: int
+    t: float
+
+
+Event = Union[KillEvent, DeathEvent, AliveStateEvent, RoundEndEvent,
+              SpikePlantEvent, RoundBoundaryEvent]
 
 
 class SourceEvents(BaseModel):

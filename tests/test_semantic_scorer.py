@@ -49,9 +49,47 @@ def test_multikill_is_cluster_total(settings):
                 make_kill(30.0)],                   # 1
     )
     cards = build_scorecards(EventsFile(sources=[src]), settings)
-    assert len(cards.clips) == 1
-    assert cards.clips[0].tags == ["multikill_4"]
-    assert cards.clips[0].anchor_ts == [10.0, 20.0, 21.5, 30.0]
+    # 全簇 = 四杀;跨度 23.7s > max_clip_s=18 → 切成段但标签共享、击杀全保留
+    assert all(c.tags == ["multikill_4"] for c in cards.clips)
+    all_anchors = sorted(a for c in cards.clips for a in c.anchor_ts)
+    assert all_anchors == [10.0, 20.0, 21.5, 30.0]
+
+
+def test_round_boundary_breaks_cluster(settings):
+    """回合切换断簇:跨回合的击杀不能并成一个多杀(用户指出的 test5 问题)。"""
+    from backend.schemas.models import RoundBoundaryEvent
+
+    src = SourceEvents(
+        source="sources/a.mp4",
+        video_meta=VideoMeta(width=2560, height=1440, fps=60, duration_s=100),
+        events=[make_kill(10.0), make_kill(12.0),
+                RoundBoundaryEvent(frame=900, t=15.0),
+                make_kill(18.0), make_kill(20.0), make_kill(22.0)],
+    )
+    cards = build_scorecards(EventsFile(sources=[src]), settings)
+    assert len(cards.clips) == 2
+    assert cards.clips[0].tags == ["multikill_2"]
+    assert cards.clips[1].tags == ["multikill_3"]
+
+
+def test_long_cluster_splits_keeping_all_kills(settings):
+    """超长簇分段:五杀跨 30s,不丢第 5 杀——切成多段,各段共享 multikill_5。"""
+    kills = [10.0, 12.0, 13.5, 15.0, 32.0]  # 第 4-5 杀之间 17s 空档
+    src = SourceEvents(
+        source="sources/a.mp4",
+        video_meta=VideoMeta(width=2560, height=1440, fps=60, duration_s=100),
+        events=[make_kill(t) for t in kills],
+    )
+    # 间隔 17s > merge_gap=12 会分簇;本测试针对切段逻辑,临时放大 merge_gap
+    import copy
+    s = copy.deepcopy(settings)
+    s["semantic"]["clip"]["merge_gap_s"] = 20.0
+    cards = build_scorecards(EventsFile(sources=[src]), s)
+    assert len(cards.clips) == 2
+    assert all(c.tags == ["multikill_5"] for c in cards.clips)  # 共享全簇标签
+    all_anchors = sorted(a for c in cards.clips for a in c.anchor_ts)
+    assert all_anchors == kills  # 一个击杀都不丢
+    assert all(c.span.end_t - c.span.start_t <= 18.0 + 1e-6 for c in cards.clips)
 
 
 def test_death_breaks_cluster(settings):

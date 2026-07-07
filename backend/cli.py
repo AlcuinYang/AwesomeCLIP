@@ -311,5 +311,51 @@ def serve(port: int = typer.Option(8765, help="监听端口"),
     uvicorn.run(create_app(p.root), host=host, port=port, log_level="warning")
 
 
+@app.command()
+def gui(port: int = typer.Option(8765, help="后端端口"),
+        ui_port: int = typer.Option(3000, help="前端端口"),
+        project: Optional[Path] = _project_opt):
+    """一键启动 GUI:后端 + 前端同时拉起,Ctrl+C 一起退出。"""
+    import shutil
+    import subprocess
+
+    import uvicorn
+
+    from .api.server import create_app
+
+    p = _get_project(project)
+    frontend = Path(__file__).resolve().parents[1] / "frontend"
+    pnpm = shutil.which("pnpm")
+    if not pnpm:
+        raise typer.BadParameter("未找到 pnpm(前端需要):npm install -g pnpm")
+    if not (frontend / "node_modules").exists():
+        typer.echo("首次运行,安装前端依赖(约 1-2 分钟)...")
+        subprocess.run([pnpm, "install"], cwd=frontend, check=True)
+
+    import os
+    import signal
+
+    # 独立进程组:退出时整组终止(pnpm 会再派生 next-server 子进程)
+    ui = subprocess.Popen([pnpm, "dev", "--port", str(ui_port)], cwd=frontend,
+                          start_new_session=True)
+    typer.echo(f"项目: {p.root}")
+    typer.echo(f"后端: http://127.0.0.1:{port}")
+    typer.secho(f"打开 → http://localhost:{ui_port}", fg=typer.colors.GREEN, bold=True)
+    from contextlib import suppress
+    import sys
+    # SIGTERM 默认会直接杀死进程跳过 finally;转成 SystemExit 保证前端被清理
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    try:
+        uvicorn.run(create_app(p.root), host="127.0.0.1", port=port,
+                    log_level="warning")
+    finally:
+        with suppress(ProcessLookupError):
+            os.killpg(ui.pid, signal.SIGTERM)
+        with suppress(subprocess.TimeoutExpired):
+            ui.wait(timeout=4)
+        with suppress(ProcessLookupError):
+            os.killpg(ui.pid, signal.SIGKILL)  # 兜底:next-server 偶尔无视 SIGTERM
+
+
 if __name__ == "__main__":
     app()

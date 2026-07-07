@@ -105,12 +105,13 @@ agent:
 ## GUI(P2)
 
 ```bash
-# 终端 1:后端(REST + WebSocket,默认 127.0.0.1:8765)
-uv run vmontage serve -p <项目目录>
+# 一键启动(推荐):后端 + 前端一条命令,Ctrl+C 一起退出
+uv run vmontage gui -p <项目目录>
+# → 打开 http://localhost:3000(首次会自动 pnpm install)
 
-# 终端 2:前端(OpenVideo fork,首次先 pnpm install)
-cd frontend && pnpm install && pnpm dev
-# 打开 http://localhost:3000
+# 或手动分开跑:
+uv run vmontage serve -p <项目目录>        # 终端 1:后端 127.0.0.1:8765
+cd frontend && pnpm install && pnpm dev   # 终端 2:前端
 ```
 
 - 启动即把 `edl.json` 加载进时间线;画布只播 720p proxy(需先跑过 ingest 生成)。
