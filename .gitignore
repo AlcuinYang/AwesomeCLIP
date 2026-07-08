@@ -18,3 +18,8 @@ tests/fixtures/*.png
 tests/VideoSet/
 demo_montage/
 project_realtest/
+# 出片项目目录(成片/代理体积大,不入库)
+final_montage/
+demo_montage/
+*_montage/
+tests/RawVideo/

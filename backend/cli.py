@@ -279,6 +279,23 @@ def render(project: Optional[Path] = _project_opt):
     _render(project, preview=False)
 
 
+@app.command()
+def verify(project: Optional[Path] = _project_opt):
+    """击杀 node 人工核对表:每个检出事件截图拼图(防漏杀质检)。"""
+    from .pipeline.verify import build_verify_sheets
+
+    p = _get_project(project)
+    events = p.load(proj.EVENTS_JSON, EventsFile)
+    kills = sum(1 for s in events.sources for e in s.events if e.type == "kill")
+    paths, warnings = build_verify_sheets(p, events, p.root / "verify")
+    _warn(warnings)
+    typer.echo(f"共 {kills} 个击杀 node → {len(paths)} 张核对图:")
+    for path in paths:
+        typer.echo(f"  {path}")
+    typer.echo("逐格核对:每格应是一行'我'参与的信息流;发现漏杀可对照录像"
+               "手工补 events.json 后重跑 auto-cut(无需重新 detect 其他素材)。")
+
+
 @app.command("export-vlm-dataset")
 def export_vlm_dataset(
         out: Optional[Path] = typer.Option(None, "--out", help="输出目录(默认 项目/dataset)"),
