@@ -23,3 +23,7 @@ final_montage/
 demo_montage/
 *_montage/
 tests/RawVideo/
+# 测试用例只留本地,不上传(用户要求)
+tests/
+.DS_Store
+**/.DS_Store
