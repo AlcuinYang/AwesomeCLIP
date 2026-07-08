@@ -121,7 +121,10 @@ def place_clips(clips: list[Clip], beats_t: list[float], settings: dict,
     cursor = 0.0
     for c in clips:
         snap = SnapInfo(mode="none", cut_beat_t=None)
-        if anchor_align and c.anchors:
+        if not beats_t:
+            # 无音乐粗剪模式:片段直拼,不吸附(之后 set_music 可随时补歌重吸附)
+            start = cursor
+        elif anchor_align and c.anchors:
             # 高级模式:反推 in_t 使第一个击杀帧落在拍点,片段间无缝拼接。
             # 拍点从 [游标+pre_min, 游标+默认 pre] 区间内取最接近默认留白的,
             # 区间内没有则向后取第一个(留白加长,受 max_shift 限制)。
@@ -176,26 +179,28 @@ def place_clips(clips: list[Clip], beats_t: list[float], settings: dict,
     return entries, warnings
 
 
-def build_edl(cards: ScorecardsFile, beats: BeatsFile, events: EventsFile,
+def build_edl(cards: ScorecardsFile, beats: BeatsFile | None, events: EventsFile,
               settings: dict, target_duration_s: float,
               anchor_align: bool = False) -> tuple[EdlFile, list[str]]:
+    """beats=None 时为无音乐粗剪:片段直拼,不吸附,不混 BGM。"""
     warnings: list[str] = []
     clips = clips_from_cards(cards, events)
     if not clips:
         raise ValueError("没有 selected 的片段,请检查 scorecards.json 或调低 scorer.min_score。")
     # 成片不能比音乐长:超出部分没有拍点可吸附,BGM 也会提前收尾
-    if beats.beats_t and target_duration_s > beats.beats_t[-1]:
+    if beats is not None and beats.beats_t and target_duration_s > beats.beats_t[-1]:
         warnings.append(f"目标时长 {target_duration_s:.0f}s 超过音乐长度,"
                         f"收紧到最后一个拍点 {beats.beats_t[-1]:.1f}s。")
         target_duration_s = beats.beats_t[-1]
     clips = fit_clips(clips, target_duration_s, settings, warnings)
-    entries, place_warnings = place_clips(clips, beats.beats_t, settings,
-                                          anchor_align=anchor_align)
+    entries, place_warnings = place_clips(
+        clips, beats.beats_t if beats is not None else [], settings,
+        anchor_align=anchor_align)
     warnings += place_warnings
 
     render_cfg = settings["render"]
     edl = EdlFile(
-        music=beats.music,
+        music=beats.music if beats is not None else None,
         target_duration_s=target_duration_s,
         global_effects=GlobalEffects(frame_drop=False),
         timeline=entries,

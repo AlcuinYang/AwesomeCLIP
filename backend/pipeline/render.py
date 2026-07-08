@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..schemas.models import EdlFile
-from .effects import build_video_chain, clip_extra_duration
+from .effects import build_audio_chain, build_video_chain, rendered_duration
 from .ffmpeg_utils import ffprobe_meta, pick_video_codec, run_ffmpeg
 from .project import Project
 
@@ -67,16 +67,14 @@ def render(project: Project, edl: EdlFile, out_path: Path, settings: dict,
             global_frame_drop=edl.global_effects.frame_drop))
         v_labels.append(vl)
 
-        dur = entry.out_t - entry.in_t + clip_extra_duration(
-            entry, edl.global_effects.frame_drop)
+        dur = rendered_duration(entry)
         total_dur += dur
         al = f"a{k}"
         if metas[entry.source]["has_audio"]:
-            fc_parts.append(
-                f"[{i}:a]atrim=start={entry.in_t:.3f}:end={entry.out_t:.3f},"
-                f"asetpts=PTS-STARTPTS,"
-                f"apad=whole_dur={dur:.3f},atrim=end={dur:.3f},"
-                f"volume={entry.audio.game_volume:.3f}[{al}]")
+            fc_parts.append(build_audio_chain(
+                entry, f"{i}:a", f"{al}raw",
+                mute_speed_spans=bool(settings["audio"].get("mute_speed_spans", True))))
+            fc_parts.append(f"[{al}raw]apad=whole_dur={dur:.3f},atrim=end={dur:.3f}[{al}]")
         else:
             fc_parts.append(
                 f"anullsrc=channel_layout=stereo:sample_rate=48000,"

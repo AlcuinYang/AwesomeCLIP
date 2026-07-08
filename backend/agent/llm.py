@@ -37,7 +37,9 @@ class OpenRouterClient:
         self.api_key = api_key or os.environ.get(key_env)
         if not self.api_key:
             raise LlmError(f"缺少 {key_env} 环境变量(见 settings.yaml 的 agent.api_key_env)。")
-        self._http = httpx.Client(timeout=120, transport=transport)
+        # 导演 pass(思考模式+多图)可能超过 2 分钟,超时给足
+        self._http = httpx.Client(timeout=float(cfg.get("timeout_s", 600)),
+                                  transport=transport)
 
     def chat(self, messages: list[dict], tools: Optional[list[dict]] = None,
              model: Optional[str] = None) -> dict:

@@ -66,7 +66,8 @@ def ingest(sources: list[Path] = typer.Argument(..., help="视频文件或目录
 
 @app.command()
 def run(sources: list[Path] = typer.Argument(..., help="视频文件或目录,可传多个"),
-        music: Path = typer.Option(..., "--music", "-m", help="BGM 文件"),
+        music: Optional[Path] = typer.Option(None, "--music", "-m",
+                                             help="BGM 文件;省略则无音乐粗剪"),
         target: float = typer.Option(60, "--target", help="目标总时长(秒)"),
         anchor_align: bool = typer.Option(False, "--anchor-align"),
         directory: Optional[Path] = typer.Option(
@@ -81,7 +82,8 @@ def run(sources: list[Path] = typer.Argument(..., help="视频文件或目录,�
     typer.echo(f"项目: {p.root}")
     _ingest(p, sources, music)
     detect(project=p.root)
-    analyze_music(music, project=p.root)
+    if music is not None:
+        analyze_music(music, project=p.root)
     auto_cut(target=target, anchor_align=anchor_align, project=p.root)
     _render(p.root, preview=True)
     if final:
@@ -179,7 +181,11 @@ def auto_cut(target: float = typer.Option(60, "--target", help="目标总时长(
     p = _get_project(project)
     settings = load_settings(p.root)
     cards = p.load(proj.SCORECARDS_JSON, ScorecardsFile)
-    beats = p.load(proj.BEATS_JSON, BeatsFile)
+    beats = p.load(proj.BEATS_JSON, BeatsFile) if p.exists(proj.BEATS_JSON) else None
+    if beats is None:
+        typer.secho("无 beats.json → 无音乐粗剪模式(片段直拼,不卡点;"
+                    "之后 analyze-music + auto-cut 或 chat 'set_music' 可补歌)",
+                    fg=typer.colors.YELLOW)
     events = p.load(proj.EVENTS_JSON, EventsFile)
     edl, warnings = build_edl(cards, beats, events, settings, target,
                               anchor_align=anchor_align)
@@ -236,6 +242,44 @@ def chat(instruction: Optional[str] = typer.Argument(
         if not line or line.lower() in ("exit", "quit"):
             break
         once(line)
+
+
+@app.command()
+def direct(style: Optional[str] = typer.Argument(
+               None, help='风格提示,如 "爆发开场不要铺垫";留空用默认导演准则'),
+           no_frames: bool = typer.Option(False, "--no-frames",
+                                          help="不送关键帧(纯文本证据,更便宜)"),
+           render_after: bool = typer.Option(True, "--render/--no-render",
+                                             help="完成后直接渲染 720p 预览"),
+           project: Optional[Path] = _project_opt):
+    """MLLM 导演编排:段内间隙裁决(keep/compress/cut)→ storyboard.json + edl.json。"""
+    from .agent.director import direct as run_direct
+    from .agent.llm import LlmError, OpenRouterClient
+
+    p = _get_project(project)
+    settings = load_settings(p.root)
+    try:
+        client = OpenRouterClient(settings)
+        sb, edl, warnings = run_direct(p, settings, client, style_hint=style,
+                                       with_frames=not no_frames)
+    except LlmError as e:
+        raise typer.BadParameter(str(e))
+    _warn(warnings)
+    typer.secho("分镜表(storyboard.json,思考全文在 reasoning 字段):",
+                fg=typer.colors.GREEN)
+    for i, shot in enumerate(sb.shots, 1):
+        typer.echo(f"  镜头{i} {shot.clip_id} {shot.in_t:.1f}~{shot.out_t:.1f}s"
+                   f" — {shot.rationale}")
+        for g in shot.gap_treatments:
+            mark = (f"压缩x{g.factor:g}" if g.action == "compress"
+                    else "剪掉" if g.action == "cut" else "保留")
+            typer.echo(f"    · 间隙 {g.from_t:.1f}~{g.to_t:.1f}s [{mark}] {g.rationale}")
+    for r in sb.rejected:
+        typer.echo(f"  弃用 {r.clip_id} — {r.reason}")
+    total = edl.target_duration_s
+    typer.echo(f"{len(edl.timeline)} 个时间线条目,预计成片 {total:.1f}s → edl.json")
+    if render_after:
+        _render(p.root, preview=True)
 
 
 @app.command()

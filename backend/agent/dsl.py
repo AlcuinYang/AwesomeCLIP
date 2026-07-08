@@ -36,7 +36,11 @@ class AgentSession:
         self.settings = settings
         self.cards: ScorecardsFile = project.load(proj.SCORECARDS_JSON, ScorecardsFile)
         self.events: EventsFile = project.load(proj.EVENTS_JSON, EventsFile)
-        self.beats: BeatsFile = project.load(proj.BEATS_JSON, BeatsFile)
+        try:
+            self.beats: BeatsFile = project.load(proj.BEATS_JSON, BeatsFile)
+        except FileNotFoundError:
+            # 无音乐粗剪模式:直拼不吸附,随时可用 set_music 补歌
+            self.beats = BeatsFile(music="", bpm=0.0)
         self.edl: EdlFile = project.load(proj.EDL_JSON, EdlFile)
         # 会话内记住对齐模式(从现有 EDL 推断)
         self.anchor_align = any(e.snap.mode == "anchor_align" for e in self.edl.timeline)
@@ -348,8 +352,10 @@ class AgentSession:
     # ------------------------------------------------------------- 上下文
     def context_summary(self) -> str:
         """给 LLM 的当前状态摘要(scorecards + 时间线 + 音乐)。"""
-        lines = [f"## 音乐\n{self.beats.music},BPM {self.beats.bpm},"
-                 f"拍点间隔约 {60 / self.beats.bpm:.2f}s",
+        music_line = (f"{self.beats.music},BPM {self.beats.bpm},"
+                      f"拍点间隔约 {60 / self.beats.bpm:.2f}s"
+                      if self.beats.bpm else "(无音乐粗剪模式:片段直拼,不卡点)")
+        lines = [f"## 音乐\n{music_line}",
                  f"\n## 全部片段(scorecards,按分数降序)"]
         for c in self.cards.clips:
             lines.append(

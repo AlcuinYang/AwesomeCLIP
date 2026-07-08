@@ -159,17 +159,25 @@ class SnapInfo(BaseModel):
 
 
 class SpeedRamp(BaseModel):
-    """击杀瞬间变速。V1 仅慢放单一预设(规格 §5.7)。"""
+    """击杀瞬间变速(锚点式,规格 §5.7)。"""
     anchor_t: float           # 源内时间(击杀帧)
-    factor: float = 0.5       # 0.5 = 半速慢放
+    factor: float = 0.5       # 播放倍速:0.5 = 半速慢放
     pre_s: float = 0.3        # 击杀前进入慢放的时长
     post_s: float = 0.5       # 击杀后退出慢放的时长
+
+
+class SpeedSpan(BaseModel):
+    """任意跨度变速(导演的间隙压缩用;factor>1 快进,<1 慢放)。源内时间。"""
+    from_t: float
+    to_t: float
+    factor: float
 
 
 class ClipEffects(BaseModel):
     frame_drop: bool = False
     frame_drop_strength: float = 0.5  # 丢帧比例 0..1
     speed_ramp: Optional[SpeedRamp] = None
+    speed_spans: list[SpeedSpan] = Field(default_factory=list)
 
 
 class ClipAudio(BaseModel):
@@ -200,6 +208,44 @@ class RenderSettings(BaseModel):
     resolution: str = "source"     # "source" | "1080p" | "720p"
     codec: str = "h264_nvenc"      # 不可用时渲染阶段自动回退 libx264
     crf_equivalent: int = 20
+
+
+class GapTreatment(BaseModel):
+    """导演对片段内一个击杀间隙的裁决(可解释:必须带 rationale)。"""
+    from_t: float             # 源内时间
+    to_t: float
+    action: Literal["keep", "compress", "cut"]
+    factor: Optional[float] = None   # compress 时的倍速(4~8 常用)
+    rationale: str = ""
+
+
+class Shot(BaseModel):
+    """分镜表中的一个镜头。"""
+    clip_id: str
+    in_t: float
+    out_t: float
+    gap_treatments: list[GapTreatment] = Field(default_factory=list)
+    rationale: str = ""
+
+
+class RejectedClip(BaseModel):
+    clip_id: str
+    reason: str
+
+
+class Storyboard(BaseModel):
+    """导演分镜表(一等产物):MLLM 以导演思维链产出,EDL 由此生成。
+
+    可解释性:每个镜头/间隙/弃用都带 rationale;reasoning 保存模型完整思考过程,
+    供测试阶段优化提示词,也是未来偏好训练的数据。
+    """
+    style_hint: Optional[str] = None
+    shots: list[Shot] = Field(default_factory=list)
+    rejected: list[RejectedClip] = Field(default_factory=list)
+    model: str = ""
+    rubric_version: str = "v2"
+    created_at: str = ""
+    reasoning: Optional[str] = None
 
 
 class EdlFile(BaseModel):

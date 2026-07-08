@@ -73,6 +73,12 @@ audio:
   game_volume: 0.35          # 游戏原声音量(规格 §5.8)
   music_volume: 1.0
   music_fade_out_s: 1.5
+  mute_speed_spans: true     # 变速段游戏声:true=静音(干净,主流做法);false=atempo 变速保留
+
+director:                    # MLLM 导演(llm as judge):段内间隙裁决 → storyboard.json
+  frame_width: 480           # 关键帧送模型前缩放宽度
+  jpeg_quality: 80
+  factor_range: [2, 10]      # 压缩倍速合法区间,越界裁决被程序校验剔除
 
 render:
   codec: h264_nvenc          # 不可用自动回退 libx264 并警告

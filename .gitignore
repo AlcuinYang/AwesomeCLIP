@@ -27,3 +27,5 @@ tests/RawVideo/
 tests/
 .DS_Store
 **/.DS_Store
+director_cut/
+bench_dvr/
