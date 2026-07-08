@@ -197,6 +197,7 @@ def auto_cut(target: float = typer.Option(60, "--target", help="目标总时长(
 
 def _render(project: Optional[Path], preview: bool):
     from .pipeline.render import render as run_render
+    from .pipeline.review import build_review_srt
 
     p = _get_project(project)
     settings = load_settings(p.root)
@@ -206,7 +207,9 @@ def _render(project: Optional[Path], preview: bool):
     out, warnings = run_render(p, edl, p.root / "output" / name, settings,
                                preview=preview)
     _warn(warnings)
+    srt = build_review_srt(edl, out.with_suffix(".srt"))
     typer.echo(f"渲染完成({time.time() - t0:.1f}s): {out}")
+    typer.echo(f"评审字幕(播放器自动加载,显示镜头/变速标签): {srt}")
 
 
 @app.command()
