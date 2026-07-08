@@ -40,6 +40,12 @@ def render(project: Project, edl: EdlFile, out_path: Path, settings: dict,
     warnings: list[str] = []
 
     sources = list(dict.fromkeys(e.source for e in edl.timeline))  # 去重保序
+    missing = [s for s in sources if not project.resolve_media(s).exists()]
+    if missing:
+        raise FileNotFoundError(
+            "源素材已不存在(被移动或删除),无法渲染: "
+            + ", ".join(missing)
+            + "。请恢复文件,或重新 ingest 后重跑 detect/auto-cut。")
     metas = {s: ffprobe_meta(project.resolve_media(s)) for s in sources}
     src_index = {s: i for i, s in enumerate(sources)}
     w, h, fps = _target_geometry(edl, metas, preview,
