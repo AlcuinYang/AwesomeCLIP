@@ -265,7 +265,8 @@ def direct(project: Project, settings: dict, client: OpenRouterClient,
                 content.append({"type": "image_url", "image_url": {
                     "url": f"data:image/jpeg;base64,{b64}"}})
 
-    msg = client.chat([{"role": "user", "content": content}])
+    msg = client.chat([{"role": "user", "content": content}],
+                      model=client.director_model)
     text = (msg.get("content") or "").strip()
     if text.startswith("```"):
         text = text.strip("`").removeprefix("json").strip()
@@ -276,7 +277,7 @@ def direct(project: Project, settings: dict, client: OpenRouterClient,
 
     sb = Storyboard.model_validate(data)
     sb.style_hint = style_hint
-    sb.model = client.model
+    sb.model = client.director_model
     sb.rubric_version = RUBRIC_VERSION
     sb.created_at = datetime.datetime.now().isoformat(timespec="seconds")
     sb.reasoning = msg.get("reasoning_content")

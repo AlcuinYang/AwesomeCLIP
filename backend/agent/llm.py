@@ -28,6 +28,7 @@ class OpenRouterClient:
         cfg = settings["agent"]
         self.base_url = str(cfg["base_url"]).rstrip("/")
         self.model = str(cfg["model"])
+        self.director_model = str(cfg.get("director_model") or cfg["model"])
         self.narration_model = str(cfg.get("narration_model", cfg["model"]))
         # 部分厂商(如 Kimi K2.6/K2.5)不接受自定义 temperature,配 null 则不发送
         self.temperature = cfg.get("temperature")
