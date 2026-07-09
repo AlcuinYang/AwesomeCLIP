@@ -23,7 +23,7 @@ uv sync                                # 安装(Python 3.12 由 uv 管理,系统
 uv run pytest -q                       # 全部测试(35 个,含合成素材 E2E,~10s)
 uv run vmontage --help                 # CLI:run(一键)/init/ingest(多文件)/calibrate(可从视频
                                        #     --at 抽帧)/detect/analyze-music/auto-cut/preview
-                                       #     /render/chat/undo/narrate/serve/export-vlm-dataset
+                                       #     /render/chat/undo/direct/serve/export-vlm-dataset
 uv run vmontage serve -p <项目目录>     # GUI 后端 (REST+WS, 127.0.0.1:8765)
 cd frontend && pnpm dev                # GUI 前端 (Next.js, node22+pnpm9)
 ```

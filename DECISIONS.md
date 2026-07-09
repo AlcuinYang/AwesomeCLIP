@@ -46,3 +46,5 @@
 | DX40 | round_boundary(回合切换)事件:schema 与语义层断簇逻辑已就绪,但 V1 检测器**不产出**——比分数字指纹、白字二值 IoU、帧差硬切三种规则 CV 方案在半透明 HUD 上实测全部误报/漏报;后续由 OCR 或 P3 VLM 补充。当前用"超长簇从最大击杀间隙切分"近似(实测 test5 的最大间隙恰在回合切换处) | 半透明 HUD 让背景污染一切小 ROI 指纹;宁可不产出也不产出误报(误报会拆散真多杀) |
 | DX41 | 超长簇分段替代"最密窗口裁剪":从最大间隙递归切段,每段 ≤ max_clip_s,**击杀一个不丢**,同簇各段共享标签与分数 | 用户指出最密窗口会丢掉间隙后的击杀(test5 五杀丢了第 5 杀);段间空档剪掉本来就是集锦的正确形态 |
 | DX42 | `vmontage gui` 一键启动前后端;前端进程组独立会话,退出时 SIGTERM→SIGKILL 兜底;SIGTERM 转 SystemExit 保证 finally 清理 | 实测 next-server 会无视 SIGTERM、SIGTERM 默认行为跳过 finally,两个都踩过 |
+| DX43 | **导演准则 v3:间隙裁决只有 keep/cut,废弃 compress 变速**;模型仍输出 compress 时校验器降级为 cut 并告警;新增"全覆盖"准则(每个片段必须进 shots 或 rejected);effects.py 的 speed_spans 机制保留(供手工/DSL 使用与旧 storyboard 渲染) | 用户看过大量高光成片确认主流做法就是直接剪掉;且导演看不到间隙内画面(无视频理解),变速起止点判断本质是盲猜,实测点位很怪 |
+| DX44 | L3 叙事层(narrate 命令、NARRATE_PROMPT、narration_model 配置)整体移除;schema 的 narration 字段保留(兼容旧 scorecards.json,前端有值才显示) | 用户明确"我不需要解说词";集锦以画面密度为主 |

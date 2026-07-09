@@ -78,9 +78,10 @@ audio:
 director:                    # MLLM 导演(llm as judge):段内间隙裁决 → storyboard.json
   frame_width: 480           # 关键帧送模型前缩放宽度
   jpeg_quality: 80
-  factor_range: [2, 10]      # 压缩倍速合法区间,越界裁决被程序校验剔除
-  # 变速/剪切跨度距击杀时间戳的硬缓冲(程序强制,不只靠提示词):
-  # 交火从拉枪到击杀落地需 2.5~4s,必须整段常速;时间戳本身比真实击杀晚 ~0.5s
+  # 准则 v3:间隙只有 keep/cut 两种处理,不再变速压缩(用户确认主流高光就是直接剪掉;
+  # 模型看不到间隙内画面,变速点位判断不可靠)。compress 输出会被校验器降级为 cut。
+  # 剪切跨度距击杀时间戳的硬缓冲(程序强制,不只靠提示词):
+  # 交火从拉枪到击杀落地需 2.5~4s,必须整段保留;时间戳本身比真实击杀晚 ~0.5s
   buffer_after_kill_s: 2.0   # 跨度起点距上一杀的最小距离
   buffer_before_kill_s: 3.5  # 跨度终点距下一杀的最小距离
   min_span_s: 1.5            # 收紧后跨度短于此值就不值得处理,剔除
@@ -108,14 +109,12 @@ agent:
   #          base_url: https://api.moonshot.cn/v1
   #          api_key_env: MOONSHOT_API_KEY
   #          model: kimi-k2.6
-  #          narration_model: kimi-k2.6
   #          temperature: null                    # K2.6/K2.5 不接受自定义温度,必须置 null
   #      注意:保持思考模式开启(默认)。实测关思考(extra_body: thinking:{type:disabled})
   #      会做错"其余按时间顺序"这类需要推理的指令;reasoning_content 透传已支持。
   base_url: https://openrouter.ai/api/v1
   api_key_env: OPENROUTER_API_KEY          # 从哪个环境变量读 API key
   model: anthropic/claude-sonnet-4.5       # NL 剪辑指令用
-  narration_model: anthropic/claude-haiku-4.5   # L3 叙事用(便宜量大)
   max_turns: 12                            # 单条指令的最大工具调用轮数
   temperature: 0.2                         # 置 null 则不发送该参数
   extra_body: {}                           # 厂商特有请求体,原样并入 payload

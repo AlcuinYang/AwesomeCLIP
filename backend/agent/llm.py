@@ -1,10 +1,9 @@
-"""OpenRouter 接入:NL 指令 → function calling → DSL(P1),以及 L3 叙事层。
+"""OpenRouter 接入:NL 指令 → function calling → DSL(P1)。
 
 - API key 从环境变量 OPENROUTER_API_KEY 读取;模型/端点在 settings.yaml 的 agent 节。
 - run_agent:多轮工具循环,LLM 每次 tool call 都落到 AgentSession.apply(自动写
   agent_log.jsonl);DslError 作为工具结果回传,LLM 可自行修正参数重试。
-- narrate:基于证据卡生成一句中文叙述,写回 scorecards.json 的 narration;
-  任何失败都不阻塞(规格 §4.2)。
+- L3 叙事层(narrate)已按用户要求移除:集锦不需要解说词。
 """
 from __future__ import annotations
 
@@ -14,7 +13,6 @@ from typing import Callable, Optional
 
 import httpx
 
-from ..pipeline import project as proj
 from .dsl import TOOLS, AgentSession, DslError
 
 
@@ -29,7 +27,6 @@ class OpenRouterClient:
         self.base_url = str(cfg["base_url"]).rstrip("/")
         self.model = str(cfg["model"])
         self.director_model = str(cfg.get("director_model") or cfg["model"])
-        self.narration_model = str(cfg.get("narration_model", cfg["model"]))
         # 部分厂商(如 Kimi K2.6/K2.5)不接受自定义 temperature,配 null 则不发送
         self.temperature = cfg.get("temperature")
         # 厂商特有的额外请求体,如 Kimi 的 {"thinking": {"type": "disabled"}}
@@ -123,45 +120,3 @@ def run_agent(session: AgentSession, instruction: str,
     return "达到最大工具调用轮数,操作可能未全部完成;请检查时间线。"
 
 
-NARRATE_PROMPT = """以下是 Valorant 高光片段的证据卡(JSON)。为每个片段写一句简短的中文
-叙述(20 字以内,电竞解说风格,基于证据不要编造)。只输出 JSON 对象,键为 clip_id,
-值为叙述字符串,不要输出其他内容。
-
-{cards}"""
-
-
-def narrate(project, settings: dict, client: OpenRouterClient) -> int:
-    """L3 叙事:为缺 narration 的片段生成一句话,写回 scorecards.json。
-
-    返回成功填充的数量;单点失败静默跳过,不阻塞流程。
-    """
-    from ..schemas.models import ScorecardsFile
-
-    cards = project.load(proj.SCORECARDS_JSON, ScorecardsFile)
-    pending = [c for c in cards.clips if c.narration is None]
-    if not pending:
-        return 0
-    payload = [{"clip_id": c.clip_id, "tags": c.tags, "score": c.score.total,
-                "evidence": c.evidence.model_dump()} for c in pending]
-    try:
-        msg = client.chat(
-            [{"role": "user",
-              "content": NARRATE_PROMPT.format(
-                  cards=json.dumps(payload, ensure_ascii=False))}],
-            model=client.narration_model,
-        )
-        text = (msg.get("content") or "").strip()
-        if text.startswith("```"):
-            text = text.strip("`").removeprefix("json").strip()
-        mapping = json.loads(text)
-    except (LlmError, json.JSONDecodeError, httpx.HTTPError):
-        return 0  # 叙事失败不阻塞,narration 保持 null
-    count = 0
-    for c in pending:
-        value = mapping.get(c.clip_id)
-        if isinstance(value, str) and value.strip():
-            c.narration = value.strip()
-            count += 1
-    if count:
-        project.save(proj.SCORECARDS_JSON, cards)
-    return count

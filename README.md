@@ -58,7 +58,6 @@ uv run vmontage chat "只要残局和三杀以上的片段"
 uv run vmontage chat "第二个片段击杀前多留一秒"
 uv run vmontage chat            # 交互模式
 uv run vmontage undo            # 撤销上一步(agent_log.jsonl 逐条回滚)
-uv run vmontage narrate         # L3:给每个片段生成一句中文叙述
 ```
 
 LLM 走 OpenAI 兼容协议,默认 OpenRouter;每次操作记录在 `agent_log.jsonl`
@@ -71,11 +70,10 @@ agent:
   base_url: https://api.moonshot.cn/v1
   api_key_env: MOONSHOT_API_KEY
   model: kimi-k2.6
-  narration_model: kimi-k2.6
   temperature: null              # K2.6/K2.5 不接受自定义温度,必须置 null
 ```
 
-该配置已实测通过附录 A 全部五条指令与 L3 叙事。**保持思考模式开启(默认)**:
+该配置已实测通过附录 A 全部五条指令。**保持思考模式开启(默认)**:
 实测关思考会做错"其余按时间顺序"这类推理型指令。
 
 或仍走 OpenRouter 只换模型名(`moonshotai/kimi-k2`、`deepseek/deepseek-chat` 等)。

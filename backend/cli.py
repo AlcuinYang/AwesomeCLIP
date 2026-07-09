@@ -255,7 +255,7 @@ def direct(style: Optional[str] = typer.Argument(
            render_after: bool = typer.Option(True, "--render/--no-render",
                                              help="完成后直接渲染 720p 预览"),
            project: Optional[Path] = _project_opt):
-    """MLLM 导演编排:段内间隙裁决(keep/compress/cut)→ storyboard.json + edl.json。"""
+    """MLLM 导演编排:段内间隙裁决(keep/cut,只剪不加速)→ storyboard.json + edl.json。"""
     from .agent.director import direct as run_direct
     from .agent.llm import LlmError, OpenRouterClient
 
@@ -296,22 +296,6 @@ def undo(project: Optional[Path] = _project_opt):
         typer.echo(AgentSession(p, settings).undo())
     except DslError as e:
         raise typer.BadParameter(str(e))
-
-
-@app.command()
-def narrate(project: Optional[Path] = _project_opt):
-    """L3 叙事:为每个片段生成一句中文描述,写回 scorecards.json。"""
-    from .agent.llm import LlmError, OpenRouterClient, narrate as run_narrate
-
-    p = _get_project(project)
-    settings = load_settings(p.root)
-    try:
-        client = OpenRouterClient(settings)
-    except LlmError as e:
-        raise typer.BadParameter(str(e))
-    count = run_narrate(p, settings, client)
-    typer.echo(f"已为 {count} 个片段生成叙述。" if count else
-               "没有生成任何叙述(可能全部已有,或调用失败——失败不阻塞)。")
 
 
 @app.command()
