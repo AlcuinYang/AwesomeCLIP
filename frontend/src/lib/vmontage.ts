@@ -88,6 +88,22 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   state: () => req<VmontageState>("/api/state"),
+  upload: async (files: File[]) => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    const resp = await fetch(`${VMONTAGE_API}/api/upload`, {
+      method: "POST",
+      body: form,
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    return resp.json() as Promise<{ saved: string[] }>;
+  },
+  detect: () => req<{ started: boolean }>("/api/detect", { method: "POST" }),
+  direct: (styleHint?: string) =>
+    req<{ started: boolean }>("/api/direct", {
+      method: "POST",
+      body: JSON.stringify({ style_hint: styleHint ?? null, with_frames: true }),
+    }),
   putEdl: (edl: Edl) =>
     req<{ ok: boolean }>("/api/edl", { method: "PUT", body: JSON.stringify(edl) }),
   chat: (instruction: string) =>
@@ -113,7 +129,14 @@ export type WsMessage =
   | { type: "agent_op"; text: string }
   | { type: "render_progress"; fraction: number }
   | { type: "render_done"; path: string; warnings: string[] }
-  | { type: "render_error"; error: string };
+  | { type: "render_error"; error: string }
+  | { type: "uploaded"; sources: string[] }
+  | { type: "detect_progress"; file: string; done: number; total: number }
+  | { type: "detect_done"; clips: number; selected: number }
+  | { type: "detect_error"; error: string }
+  | { type: "direct_started" }
+  | { type: "direct_done"; shots: number; duration_s: number; warnings: string[] }
+  | { type: "direct_error"; error: string };
 
 export function connectWs(onMessage: (m: WsMessage) => void): WebSocket {
   const ws = new WebSocket(`${VMONTAGE_API.replace(/^http/, "ws")}/ws`);

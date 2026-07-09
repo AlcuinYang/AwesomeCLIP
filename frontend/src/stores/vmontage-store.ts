@@ -22,6 +22,7 @@ interface VmontageStore {
   chatBusy: boolean;
   renderProgress: number | null; // null=空闲,0..1=进行中
   lastRenderPath: string | null;
+  pipelineStatus: string | null; // 上传/检测/导演的进行中状态行
   error: string | null;
 
   init: () => Promise<void>;
@@ -31,6 +32,8 @@ interface VmontageStore {
   sendChat: (instruction: string) => Promise<void>;
   undo: () => Promise<void>;
   startRender: (preview: boolean) => Promise<void>;
+  uploadAndDetect: (files: File[]) => Promise<void>;
+  runDirector: (styleHint?: string) => Promise<void>;
 }
 
 let wsStarted = false;
@@ -42,6 +45,7 @@ export const useVmontage = create<VmontageStore>((set, get) => ({
   chatBusy: false,
   renderProgress: null,
   lastRenderPath: null,
+  pipelineStatus: null,
   error: null,
 
   init: async () => {
@@ -58,8 +62,32 @@ export const useVmontage = create<VmontageStore>((set, get) => ({
           set({ renderProgress: null, lastRenderPath: m.path });
         else if (m.type === "render_error")
           set({ renderProgress: null, error: m.error });
+        else if (m.type === "detect_progress")
+          set({ pipelineStatus: `检测中 ${m.done + 1}/${m.total}:${m.file}` });
+        else if (m.type === "detect_done")
+          set({
+            pipelineStatus: null,
+            chatLog: [...get().chatLog, {
+              role: "assistant",
+              text: `检测完成:${m.clips} 个片段,${m.selected} 个入选。时间线已生成,可以直接下指令,或点「导演编排」。`,
+            }],
+          });
+        else if (m.type === "detect_error")
+          set({ pipelineStatus: null, error: m.error });
+        else if (m.type === "direct_started")
+          set({ pipelineStatus: "导演编排中(约 2~3 分钟,思考模式)…" });
+        else if (m.type === "direct_done")
+          set({
+            pipelineStatus: null,
+            chatLog: [...get().chatLog, {
+              role: "assistant",
+              text: `导演编排完成:${m.shots} 个镜头,约 ${m.duration_s.toFixed(0)}s。分镜理由在 storyboard.json。`,
+            }],
+          });
+        else if (m.type === "direct_error")
+          set({ pipelineStatus: null, error: m.error });
         else if (m.type === "edl_updated" && m.source !== "gui") {
-          // agent/undo 改了 EDL:拉最新状态并重灌时间线
+          // agent/undo/检测/导演改了 EDL:拉最新状态并重灌时间线
           get()
             .reload()
             .then(() => get().loadIntoEditor());
@@ -133,6 +161,27 @@ export const useVmontage = create<VmontageStore>((set, get) => ({
       set((s) => ({
         chatLog: [...s.chatLog, { role: "assistant", text: `无法撤销: ${e}` }],
       }));
+    }
+  },
+
+  uploadAndDetect: async (files: File[]) => {
+    if (!files.length) return;
+    set({ pipelineStatus: `上传 ${files.length} 个文件中…`, error: null });
+    try {
+      await api.upload(files);
+      set({ pipelineStatus: "上传完成,开始检测…" });
+      await api.detect(); // 进度与完成经 WS 推送
+    } catch (e) {
+      set({ pipelineStatus: null, error: String(e) });
+    }
+  },
+
+  runDirector: async (styleHint?: string) => {
+    set({ error: null });
+    try {
+      await api.direct(styleHint);
+    } catch (e) {
+      set({ error: String(e) });
     }
   },
 

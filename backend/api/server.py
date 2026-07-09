@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -32,6 +32,11 @@ class ChatRequest(BaseModel):
 
 class RenderRequest(BaseModel):
     preview: bool = True
+
+
+class DirectRequest(BaseModel):
+    style_hint: Optional[str] = None
+    with_frames: bool = True
 
 
 class _Broadcaster:
@@ -126,6 +131,117 @@ def create_app(project_root: Path) -> FastAPI:
         project.save(proj.EDL_JSON, edl)
         broadcaster.send({"type": "edl_updated", "source": "gui"})
         return {"ok": True}
+
+    # ------------------------------------------------------------- 素材导入与检测
+    @app.post("/api/upload")
+    async def upload(files: list[UploadFile]) -> dict:
+        """浏览器直传素材 → sources/;后台生成 proxy。"""
+        from ..pipeline.ffmpeg_utils import spawn_ffmpeg
+        from ..pipeline.ingest import VIDEO_EXTS
+
+        saved = []
+        proxy_cfg = settings()["render"]["proxy"]
+        for f in files:
+            name = Path(f.filename or "clip.mp4").name
+            if Path(name).suffix.lower() not in VIDEO_EXTS:
+                raise HTTPException(400, f"不支持的格式: {name}")
+            dest = project.root / "sources" / name
+            with open(dest, "wb") as out:
+                while chunk := await f.read(8 * 1024 * 1024):
+                    out.write(chunk)
+            proxy_out = project.root / "proxies" / (dest.stem + ".mp4")
+            spawn_ffmpeg(["-i", str(dest), "-vf", f"scale=-2:{proxy_cfg['height']}",
+                          "-c:v", "libx264", "-preset", "veryfast",
+                          "-b:v", str(proxy_cfg["bitrate"]),
+                          "-c:a", "aac", "-b:a", "96k", str(proxy_out)])
+            saved.append(f"sources/{name}")
+        broadcaster.send({"type": "uploaded", "sources": saved})
+        return {"saved": saved}
+
+    @app.post("/api/detect")
+    def start_detect() -> dict:
+        """后台检测新素材(已检测过的跳过)→ 更新 events/scorecards;
+        无 EDL 时自动无音乐 auto-cut,让时间线与聊天立即可用。"""
+        from ..config import load_roi_profile
+        from ..pipeline.align import build_edl
+        from ..pipeline.detector import Detector
+        from ..pipeline.ffmpeg_utils import ffprobe_meta
+        from ..pipeline.ingest import VIDEO_EXTS
+        from ..pipeline.scorer import score_clips
+        from ..pipeline.semantic import build_scorecards
+
+        cfg = settings()
+        videos = sorted(f for f in (project.root / "sources").iterdir()
+                        if f.suffix.lower() in VIDEO_EXTS)
+        if not videos:
+            raise HTTPException(409, "sources/ 为空,请先上传素材。")
+
+        def work() -> None:
+            try:
+                events = (project.load(proj.EVENTS_JSON, EventsFile)
+                          if project.exists(proj.EVENTS_JSON) else EventsFile())
+                done_sources = {s.source for s in events.sources}
+                todo = [v for v in videos if f"sources/{v.name}" not in done_sources]
+                for i, v in enumerate(todo):
+                    broadcaster.send({"type": "detect_progress",
+                                      "file": v.name, "done": i, "total": len(todo)})
+                    meta = ffprobe_meta(v)
+                    profile = load_roi_profile(meta["width"], meta["height"],
+                                               cfg, project.root)
+                    det = Detector(cfg, profile,
+                                   project_templates_dir=project.root / "templates")
+                    events.sources.append(det.detect(v, f"sources/{v.name}"))
+                project.save(proj.EVENTS_JSON, events)
+                cards = score_clips(build_scorecards(events, cfg), cfg)
+                project.save(proj.SCORECARDS_JSON, cards)
+                if not project.exists(proj.EDL_JSON):
+                    beats = (project.load(proj.BEATS_JSON, BeatsFile)
+                             if project.exists(proj.BEATS_JSON) else None)
+                    edl, _ = build_edl(cards, beats, events, cfg,
+                                       target_duration_s=1e9)
+                    project.save(proj.EDL_JSON, edl)
+                sel = sum(1 for c in cards.clips if c.selected)
+                result = {"status": "done", "clips": len(cards.clips), "selected": sel}
+                broadcaster.send({"type": "detect_done", **result})
+                broadcaster.send({"type": "edl_updated", "source": "detect"})
+            except Exception as e:
+                result = {"status": "error", "error": str(e)[-2000:]}
+                broadcaster.send({"type": "detect_error", **result})
+            job.finish(result)
+
+        if not job.start(work):
+            raise HTTPException(409, "已有任务在进行中。")
+        return {"started": True, "videos": len(videos)}
+
+    @app.post("/api/direct")
+    def start_direct(req: DirectRequest) -> dict:
+        """后台运行 MLLM 导演编排(2~3 分钟)→ storyboard.json + edl.json。"""
+        from ..agent.director import direct as run_direct
+        from ..agent.llm import LlmError, OpenRouterClient
+
+        try:
+            client = OpenRouterClient(settings())
+        except LlmError as e:
+            raise HTTPException(400, str(e))
+
+        def work() -> None:
+            try:
+                sb, edl, warnings = run_direct(project, settings(), client,
+                                               style_hint=req.style_hint,
+                                               with_frames=req.with_frames)
+                result = {"status": "done", "shots": len(sb.shots),
+                          "duration_s": edl.target_duration_s, "warnings": warnings}
+                broadcaster.send({"type": "direct_done", **result})
+                broadcaster.send({"type": "edl_updated", "source": "director"})
+            except Exception as e:
+                result = {"status": "error", "error": str(e)[-2000:]}
+                broadcaster.send({"type": "direct_error", **result})
+            job.finish(result)
+
+        if not job.start(work):
+            raise HTTPException(409, "已有任务在进行中。")
+        broadcaster.send({"type": "direct_started"})
+        return {"started": True}
 
     # ------------------------------------------------------------- NL agent
     @app.post("/api/chat")
